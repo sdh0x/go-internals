@@ -1,5 +1,5 @@
 ## Why using strconv instead of fmt for converting typical data types to string
-alot of us use ```fmt.Sprint``` to convert basic data types to string, but it causes performance degradation
+alot of us use ```fmt.Sprint``` to convert basic data types to string, but it causes performance degradation especially if you are building a CLI utility
 
 ### fmt.Sprint Causes Heap Escapes
 here is a code sample that checks if X is lower than 0 , if true it formates it as a complex number formula (x + yi) 
@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	var x float64 = 5 
+	var x float64 = -5 
 	var str string	
 	if x < 0 {
 		str = fmt.Sprint(math.Sqrt(-x)) + "i"
@@ -24,14 +24,14 @@ func main() {
 	}
 }
 ```
-we need then to convert the **float64** to **string** to show case why you should use **strconv*** instead of **fmt**, we used ```fmt.Sprint```, it wont print anything to the terminal, its used for converting basic data types to string, this is why we called fmt twice, one for converting and one for printing the output
+we need then to convert the **float64** to **string** to show case why you should use **strconv*** instead of **fmt**, we used ```fmt.Sprint```, used for converting basic data types to string, this is why we called fmt twice, one for converting and one for printing the output
 
-* but here is the catch, if we compile with the flag '-m' for the golang compiler which stands for escape analyses to instruct the compiler to print out its optimization desicions, what escaped to the heap and which stayed in the stack frame of the function
+* If we compile with the flag '-m' for the golang compiler which stands for escape analysis to instruct the compiler to print out its optimization decisions, what escaped to the heap and what stayed in the stack frame of the function
 
 we can see that the variable str escaped to the heap besides that all in stack frame of the main function 
 
 ```bash
-[linux main]$ go build -gcflags='-m' main.go
+[lost main]$ go build -gcflags='-m' main.go
 # command-line-arguments
 ./main.go:12:29: inlining call to math.Sqrt
 ./main.go:13:14: inlining call to fmt.Println
@@ -46,8 +46,11 @@ we can see that the variable str escaped to the heap besides that all in stack f
 ./main.go:15:24: ~r0 escapes to heap
 ```
 
-str did escape to the heap, we dont need that, heap causes overload especially if your app is cli based utility
-strconv is the best alternative solution to this, take look at that code example > note : we used built it function for printing to the terminal ``` println(str) ``` 
+str did escape to the heap, we dont need that, heap causes overload.
+
+### Using strconv
+
+strconv is the best alternative solution with a built in function for printing text to the terminal ``` println(str) ``` 
 
 ```go
 package main
@@ -58,21 +61,22 @@ import (
 )
 
 func main() {
-	var x float64 = 5
+	var x float64 = -5
 	var str string
 	if x < 0 {
-		str = strconv.FormatFloat(math.Sqrt(-x), 'f', -1, 64) + "i"
+		str = strconv.FormatFloat(math.Sqrt(-x), 'f', -1, 64) + "i" // 'f' stands for no exponent, take a look at strconv doc in pkg.go.dev/strconv
 		println(str)
 	} else {
-		println(math.Sqrt(x))
+		println(strconv.FormatFloat(math.Sqrt(x), 'f', -1, 64))
 	}
 
 }
 ```
 
 if we compile with the same flag for showing the compiler optimizing decisions 
+
 ```bash
-[linux main]$ go build -gcflags='-m' main.go
+[lost main]$ go build -gcflags='-m' main.go
 # command-line-arguments
 ./main.go:12:38: inlining call to math.Sqrt
 ./main.go:12:28: inlining call to strconv.FormatFloat
@@ -84,5 +88,11 @@ if we compile with the same flag for showing the compiler optimizing decisions
 ```
 as you can see, there is no "Escaped to the heap" there is only does not escape
 
-why is that ? 
-its because fmt function when handling your input "variable we used" it is so nested into other multiple functions that the compiler cant trace end to end if that will be recalled "the variable" , and this is called deep call chain method  **Method devirualization** and because it evaluates this through an  **interface{}** , the compiler encounters a limitation called **failure to devirtualize** , so to not crach the application & computer , the compiler makes the var escapes to the heap as a safety net.
+## why is that ? 
+fmt.Sprint takes an empty interface{} which has two-pointer structure (eface): one pointer to the dynamic type information, and one pointer to the actual data, when you pass a concrete type (float64) into fmt.Sprint go wraps it into this interface structure.
+
+Devirtualization: This is an optimization method where the compiler attempts to look through the interface, determine the concrete type then call the concrete method directly.
+
+Failure to Devirtualize: Because fmt passes your variable down a deeply nested chain of internal functions that rely on reflection, the escape analysis algorithm completely loses visibility; ( Escape analyses is an optimization method where the compiler chooses what stays in the stack and what escapes to the heap ) it cant trace the pointers lifecycle across these abstract interface boundaries
+
+As Safety Net the compiler cannot prove that a variable will not outlive the stack frame of the function so it cannot safely leave it on the stack, as a strict memory safety-net decision by the compiler, the variable escapes to the heap.
